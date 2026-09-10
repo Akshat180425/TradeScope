@@ -1,0 +1,8 @@
+node_modules
+dist
+.cache
+.local
+package-lock.json
+docs/screenshots
+test-results
+playwright-report

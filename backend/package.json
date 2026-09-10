@@ -1,0 +1,17 @@
+{
+  "name": "@investogram/backend",
+  "version": "2.0.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "zod": "^3.25.76",
+    "nodejs-order-book": "10.1.1",
+    "black-scholes": "1.1.0"
+  }
+}
