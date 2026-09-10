@@ -11,9 +11,13 @@ test('candles, line mode and portfolio charts render across viewport sizes', asy
   for (const width of [320, 768, 1024, 1920]) {
     await page.setViewportSize({ width, height: 950 });
     await expect(page.locator('.price-candle').first()).toBeVisible();
-    const bounds = await page.locator('.price-candle').first().boundingBox();
-    expect(bounds.width).toBeGreaterThan(0);
-    expect(bounds.height).toBeGreaterThan(0);
+    // Responsive charts may replace their SVG between visibility and measurement.
+    await expect(async () => {
+      const bounds = await page.locator('.price-candle').first().boundingBox();
+      expect(bounds).not.toBeNull();
+      expect(bounds.width).toBeGreaterThan(0);
+      expect(bounds.height).toBeGreaterThan(0);
+    }).toPass({ timeout: 5000 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
