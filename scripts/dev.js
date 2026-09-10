@@ -5,15 +5,14 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { parseConfig } from '../backend/src/config.js';
 const root = fileURLToPath(new URL('../', import.meta.url));
 try {
   process.loadEnvFile(path.join(root, '.env'));
 } catch (error) {
   if (error.code !== 'ENOENT') throw error;
 }
-const dataFile = path.resolve(
-  process.env.INVESTOGRAM_DATABASE || path.join(root, '.local/investogram.sqlite'),
-);
+const dataFile = parseConfig(process.env, root).database;
 const sessionFile = dataFile + '.dev.json';
 try {
   const existing = JSON.parse(readFileSync(sessionFile, 'utf8'));
@@ -24,7 +23,7 @@ try {
   if (info.devSessionId === existing.id) {
     const frontend = await fetch(existing.webUrl, { signal: AbortSignal.timeout(1500) });
     if (frontend.ok) {
-      console.log('Investogram is already running: ' + existing.webUrl);
+      console.log('TradeScope is already running: ' + existing.webUrl);
       process.exit(0);
     }
   }
@@ -56,7 +55,7 @@ const viteBin = path.join(
 );
 const env = {
   ...process.env,
-  INVESTOGRAM_DEV_SESSION: randomUUID(),
+  TRADESCOPE_DEV_SESSION: randomUUID(),
   PORT: String(apiPort),
   VITE_API_TARGET: 'http://127.0.0.1:' + apiPort,
   APP_ORIGIN: 'http://127.0.0.1:' + webPort,
@@ -77,12 +76,12 @@ mkdirSync(path.dirname(sessionFile), { recursive: true });
 writeFileSync(
   sessionFile,
   JSON.stringify({
-    id: env.INVESTOGRAM_DEV_SESSION,
+    id: env.TRADESCOPE_DEV_SESSION,
     apiUrl: 'http://127.0.0.1:' + apiPort,
     webUrl: 'http://127.0.0.1:' + webPort,
   }),
 );
-console.log('Investogram: http://127.0.0.1:' + webPort);
+console.log('TradeScope: http://127.0.0.1:' + webPort);
 console.log('Press Ctrl+C to stop both servers.');
 let stopping = false;
 function stop(code = 0) {

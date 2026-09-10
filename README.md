@@ -1,10 +1,10 @@
-# Investogram
+# TradeScope
 
 A full-stack JavaScript paper-trading workspace with private accounts, simulated equities and derivatives, an auditable cash ledger, and USD/INR display preferences.
 
 **Virtual money. Simulated prices. No brokerage connection.**
 
-![Investogram markets workspace](docs/screenshots/markets-desktop.png)
+![TradeScope markets workspace](docs/screenshots/markets-desktop.png)
 
 ## Quick Start
 
@@ -80,7 +80,9 @@ The initial configured conversion is **83 INR per USD**, explicitly a simulation
 
 ## Data and Migration
 
-The primary database is `.local/investogram.sqlite`. On first launch, an existing `.local/state.json` is imported once and retained. A migration backup is also created at `.local/backups/pre-sqlite-state.json`. Existing accounts, holdings, cash, orders, positions and price history are preserved. New cash-ledger tracking starts from an explicit migration balance, not fabricated historic entries.
+Upgrades retain compatibility with the previous database setting, default database filename, and unexpired session cookies. Fresh installations use the TradeScope names below. Existing cookies are renewed under the new name without extending their original session lifetime.
+
+The primary database is `.local/tradescope.sqlite`. On first launch, an existing `.local/state.json` is imported once and retained. A migration backup is also created at `.local/backups/pre-sqlite-state.json`. Existing accounts, holdings, cash, orders, positions and price history are preserved. New cash-ledger tracking starts from an explicit migration balance, not fabricated historic entries.
 
 Legacy demo accounts remain archived from public account switching and visible in the administrator's preserved-account summary. They are not assigned to whoever registers first. New registrations and demos receive their own private account IDs.
 
@@ -88,7 +90,7 @@ SQLite stores identities, sessions, immutable cash entries, executions, order pr
 
 **Back up the database after stopping the server.** Do not overwrite it while the app is running. Account data is local to this machine; copying only CSV exports is not a full backup. Do not commit `.local/`, `.env`, caches, logs, or test artifacts.
 
-Destructive global reset is intentionally disabled once accounts and ledgers exist. For a separate clean scenario, set `INVESTOGRAM_DATABASE` to a new file. This protects existing account records.
+Destructive global reset is intentionally disabled once accounts and ledgers exist. For a separate clean scenario, set `TRADESCOPE_DATABASE` to a new file. This protects existing account records.
 
 ## Project Layout
 
@@ -130,17 +132,17 @@ Build before running browser tests. Tests use a separate `.local/browser-tests-p
 
 Optional values are documented in `.env.example`:
 
-| Variable               | Default                      | Meaning                                                |
-| ---------------------- | ---------------------------- | ------------------------------------------------------ |
-| `HOST`                 | `127.0.0.1`                  | Backend bind address                                   |
-| `PORT`                 | `3001`                       | Backend port, or preferred dev port                    |
-| `FRONTEND_PORT`        | `5173`                       | Preferred development UI port                          |
-| `INVESTOGRAM_DATABASE` | `.local/investogram.sqlite`  | Independent database file                              |
-| `AUTO_RUN`             | `true`                       | Run market time on startup                             |
-| `DEMO_ENABLED`         | `true`                       | Allow anonymous demo-account creation                  |
-| `AUTH_RATE_LIMIT`      | `20`                         | Authentication attempts per IP per 15 minutes          |
-| `SECURE_COOKIES`       | `false`                      | Require HTTPS for cookies when set to true             |
-| `APP_ORIGIN`           | Request origin in production | Expected browser origin; set explicitly behind a proxy |
+| Variable              | Default                      | Meaning                                                |
+| --------------------- | ---------------------------- | ------------------------------------------------------ |
+| `HOST`                | `127.0.0.1`                  | Backend bind address                                   |
+| `PORT`                | `3001`                       | Backend port, or preferred dev port                    |
+| `FRONTEND_PORT`       | `5173`                       | Preferred development UI port                          |
+| `TRADESCOPE_DATABASE` | `.local/tradescope.sqlite`   | Independent database file                              |
+| `AUTO_RUN`            | `true`                       | Run market time on startup                             |
+| `DEMO_ENABLED`        | `true`                       | Allow anonymous demo-account creation                  |
+| `AUTH_RATE_LIMIT`     | `20`                         | Authentication attempts per IP per 15 minutes          |
+| `SECURE_COOKIES`      | `false`                      | Require HTTPS for cookies when set to true             |
+| `APP_ORIGIN`          | Request origin in production | Expected browser origin; set explicitly behind a proxy |
 
 ## Boundaries and Next Integrations
 

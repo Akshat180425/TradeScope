@@ -17,7 +17,7 @@ test('fresh simulations use unique, anonymous demo account labels', () => {
 });
 
 test('startup anonymizes saved demo labels without changing financial data', (t) => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'investogram-labels-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'tradescope-labels-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const filename = path.join(dir, 'state.json');
   const store = new StateStore(filename);

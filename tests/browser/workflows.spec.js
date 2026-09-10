@@ -32,7 +32,7 @@ test('market search, buying, order details, portfolio and transaction exports', 
   await expect(page.getByRole('cell', { name: 'trading fee', exact: true })).toBeVisible();
   const download = page.waitForEvent('download');
   await page.getByRole('link', { name: 'Export CSV', exact: true }).click();
-  expect((await download).suggestedFilename()).toBe('investogram-ledger.csv');
+  expect((await download).suggestedFilename()).toBe('tradescope-ledger.csv');
   expect(errors).toEqual([]);
 });
 

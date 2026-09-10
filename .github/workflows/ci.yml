@@ -1,4 +1,4 @@
-name: Investogram checks
+name: TradeScope checks
 on:
   push:
   pull_request:

@@ -95,7 +95,7 @@ test('fees reconcile for purchases, sales and derivative settlements', () => {
   assert.equal(sum, Math.round(engine.user('1').cash * 100));
 });
 test('SQLite migration preserves portfolios, backs up JSON, and survives restart', (t) => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'investogram-migration-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'tradescope-migration-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const legacy = path.join(dir, 'state.json');
   const original = new Engine();

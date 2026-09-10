@@ -11,6 +11,7 @@ import {
   hashPassword,
   verifyPassword,
   issueSession,
+  clearSessionCookies,
   sessionFromRequest,
   publicIdentity,
   rateLimiter,
@@ -98,14 +99,14 @@ export function createApp(store = new DatabaseStore(':memory:'), options = {}) {
   app.get('/api/health', (_req, res) =>
     res.json({
       status: 'ok',
-      name: 'Investogram',
+      name: 'TradeScope',
       version: '2.0.0',
       storage: 'sqlite',
-      devSessionId: process.env.INVESTOGRAM_DEV_SESSION || null,
+      devSessionId: process.env.TRADESCOPE_DEV_SESSION || null,
     }),
   );
   app.get('/api/auth/session', (req, res) => {
-    const session = sessionFromRequest(store, req);
+    const session = sessionFromRequest(store, req, res, options.secureCookies);
     if (!session) return res.status(401).json({ error: 'Sign in to continue.' });
     res.json({
       user: publicIdentity(store.identity(session.user_id)),
@@ -195,12 +196,7 @@ export function createApp(store = new DatabaseStore(':memory:'), options = {}) {
   };
   app.post('/api/auth/logout', (req, res) => {
     store.deleteSession(req.session.token_hash);
-    res.clearCookie('investogram_session', {
-      path: '/',
-      httpOnly: true,
-      sameSite: 'strict',
-      secure: !!options.secureCookies,
-    });
+    clearSessionCookies(res, options.secureCookies);
     res.json({ ok: true });
   });
   app.get('/api/state', (req, res) => {
@@ -383,7 +379,7 @@ export function createApp(store = new DatabaseStore(':memory:'), options = {}) {
         ];
     res
       .type('text/csv')
-      .attachment('investogram-' + (ledger ? 'ledger' : 'trades') + '.csv')
+      .attachment('tradescope-' + (ledger ? 'ledger' : 'trades') + '.csv')
       .send(
         rows
           .map((row) => row.map((v) => '"' + String(v).replaceAll('"', '""') + '"').join(','))

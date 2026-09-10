@@ -25,7 +25,7 @@ export async function api(path, options = {}) {
   const data = await response.json();
   if (!response.ok) {
     if (response.status === 401 && !path.startsWith('/auth/'))
-      window.dispatchEvent(new Event('investogram:expired'));
+      window.dispatchEvent(new Event('tradescope:expired'));
     const error = new Error(data.error || 'The request failed.');
     error.status = response.status;
     throw error;

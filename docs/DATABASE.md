@@ -39,7 +39,7 @@ Legacy accounts have no invented passwords and cannot be selected through public
 
 Stop the server before copying the database. If SQLite WAL/SHM files are present after an abrupt termination, retain them with the database until SQLite recovers/checkpoints; do not copy only an actively changing main file. Keep backups outside a public repository. `.local` is ignored by Git.
 
-For independent experiments, set `INVESTOGRAM_DATABASE` to a separate filename. Do not point two server instances at one engine database. A new filename does not import the original JSON unless the normal default migration path is used.
+For independent experiments, set `TRADESCOPE_DATABASE` to a separate filename. Do not point two server instances at one engine database. A new filename does not import the original JSON unless the normal default migration path is used.
 
 ## MongoDB Atlas Later
 

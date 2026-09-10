@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseStore } from '../backend/src/storage/database.js';
+import { parseConfig } from '../backend/src/config.js';
 const root = fileURLToPath(new URL('../', import.meta.url));
 try {
   process.loadEnvFile(path.join(root, '.env'));
@@ -14,9 +15,7 @@ if (!process.argv.includes('--email') || !email || !email.includes('@')) {
   );
   process.exit(1);
 }
-const store = new DatabaseStore(
-  process.env.INVESTOGRAM_DATABASE || path.join(root, '.local/investogram.sqlite'),
-);
+const store = new DatabaseStore(parseConfig(process.env, root).database);
 try {
   const identity = store.byEmail(email);
   if (!identity || identity.is_demo)

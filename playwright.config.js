@@ -30,7 +30,7 @@ export default defineConfig({
     reuseExistingServer: false,
     env: {
       PORT: '3041',
-      INVESTOGRAM_DATABASE: path.resolve('.local/browser-tests-platform.sqlite'),
+      TRADESCOPE_DATABASE: path.resolve('.local/browser-tests-platform.sqlite'),
       AUTO_RUN: 'false',
       AUTH_RATE_LIMIT: '200',
       APP_ORIGIN: 'http://127.0.0.1:3041',

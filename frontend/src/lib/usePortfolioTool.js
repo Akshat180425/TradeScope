@@ -9,7 +9,7 @@ export function usePortfolioTool(portfolio) {
     if (!registry?.registerTool) return;
     const lifecycle = new AbortController();
     const tool = {
-      name: 'get_investogram_portfolio',
+      name: 'get_tradescope_portfolio',
       title: 'Read selected portfolio',
       description:
         'Read the currently selected simulated account, balances, holdings, and open positions.',

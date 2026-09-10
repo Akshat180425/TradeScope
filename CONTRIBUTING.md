@@ -15,7 +15,7 @@ No external database or service credentials are needed. Configuration defaults a
 
 Keep frontend work in `frontend/`, API and domain changes in `backend/`, and automated checks in `tests/`. Add focused tests for changed behavior, particularly authorization, reservations, financial rounding, idempotency and persistence. Update documentation when changing behavior or commands.
 
-Use neutral example identities and synthetic data. Never commit `.env` files, account databases, session records, backups, private keys or generated test artifacts. Do not reset an existing database to test a change; use a separate `INVESTOGRAM_DATABASE` path.
+Use neutral example identities and synthetic data. Never commit `.env` files, account databases, session records, backups, private keys or generated test artifacts. Do not reset an existing database to test a change; use a separate `TRADESCOPE_DATABASE` path.
 
 ## Verification
 

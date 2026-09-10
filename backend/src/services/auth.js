@@ -4,6 +4,23 @@ import { DomainError } from '../domain/engine.js';
 
 const derive = promisify(scrypt);
 const parameters = { N: 32768, r: 8, p: 3, maxmem: 64 * 1024 * 1024 };
+const sessionCookie = 'tradescope_session';
+// Accept unexpired cookies issued before the rename, including anonymous demos.
+const previousSessionCookie = 'investogram_session';
+const cookieOptions = (secure) => ({
+  httpOnly: true,
+  sameSite: 'strict',
+  secure: !!secure,
+  path: '/',
+});
+function writeSessionCookie(res, token, maxAge, secure) {
+  res.cookie(sessionCookie, token, { ...cookieOptions(secure), maxAge });
+  res.clearCookie(previousSessionCookie, cookieOptions(secure));
+}
+export function clearSessionCookies(res, secure) {
+  for (const name of [sessionCookie, previousSessionCookie])
+    res.clearCookie(name, cookieOptions(secure));
+}
 export const digest = (value) => createHash('sha256').update(value).digest('hex');
 export async function hashPassword(password) {
   const salt = randomBytes(16).toString('hex');
@@ -37,23 +54,20 @@ export function issueSession(store, res, id, secure = false) {
   const csrf = randomBytes(32).toString('hex');
   const lifetime = 8 * 60 * 60 * 1000;
   store.createSession(digest(token), id, csrf, Date.now() + lifetime);
-  res.cookie('investogram_session', token, {
-    httpOnly: true,
-    sameSite: 'strict',
-    secure,
-    maxAge: lifetime,
-    path: '/',
-  });
+  writeSessionCookie(res, token, lifetime, secure);
   return csrf;
 }
-export function sessionFromRequest(store, req) {
-  const cookie = (req.headers.cookie || '')
-    .split(';')
-    .map((s) => s.trim())
-    .find((s) => s.startsWith('investogram_session='));
-  const token = cookie?.slice('investogram_session='.length);
+export function sessionFromRequest(store, req, res, secure = false) {
+  const cookies = (req.headers.cookie || '').split(';').map((s) => s.trim());
+  const current = cookies.find((s) => s.startsWith(sessionCookie + '='));
+  const previous = cookies.find((s) => s.startsWith(previousSessionCookie + '='));
+  const cookie = current || previous;
+  const token = cookie?.slice(cookie.indexOf('=') + 1);
   if (!token || !/^[a-f0-9]{64}$/.test(token)) return null;
-  return store.session(digest(token));
+  const session = store.session(digest(token));
+  if (session && !current && res)
+    writeSessionCookie(res, token, Math.max(0, session.expires_at - Date.now()), secure);
+  return session;
 }
 export function rateLimiter({ limit = 12, windowMs = 15 * 60 * 1000 } = {}) {
   const requests = new Map();

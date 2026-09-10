@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 import { z } from 'zod';
 
 const boolean = z.enum(['true', 'false']).transform((value) => value === 'true');
@@ -17,10 +18,19 @@ const schema = z.object({
       'APP_ORIGIN must be an origin without a path or trailing slash.',
     )
     .optional(),
+  TRADESCOPE_DATABASE: z.string().min(1).optional(),
   INVESTOGRAM_DATABASE: z.string().min(1).optional(),
 });
 export function parseConfig(environment, root) {
   const value = schema.parse(environment);
+  // Previous installations must keep their configured database during the rename.
+  const customDatabase = value.TRADESCOPE_DATABASE || value.INVESTOGRAM_DATABASE;
+  const currentDatabase = path.join(root, '.local/tradescope.sqlite');
+  const previousDatabase = path.join(root, '.local/investogram.sqlite');
+  const defaultDatabase =
+    !existsSync(currentDatabase) && existsSync(previousDatabase)
+      ? previousDatabase
+      : currentDatabase;
   return {
     host: value.HOST,
     port: value.PORT,
@@ -29,7 +39,7 @@ export function parseConfig(environment, root) {
     demo: value.DEMO_ENABLED,
     secureCookies: value.SECURE_COOKIES,
     origin: value.APP_ORIGIN,
-    database: path.resolve(root, value.INVESTOGRAM_DATABASE || '.local/investogram.sqlite'),
-    legacyFile: value.INVESTOGRAM_DATABASE ? undefined : path.join(root, '.local/state.json'),
+    database: path.resolve(root, customDatabase || defaultDatabase),
+    legacyFile: customDatabase ? undefined : path.join(root, '.local/state.json'),
   };
 }

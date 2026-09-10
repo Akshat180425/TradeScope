@@ -92,6 +92,7 @@ test('registration hashes passwords, sets private cookies, and supports login/lo
   assert.equal((await request('/api/state')).status, 401);
   const registered = await request('/api/auth/register', credentials);
   assert.equal(registered.status, 201);
+  assert.match(registered.headers.get('set-cookie'), /^tradescope_session=/);
   assert.match(registered.headers.get('set-cookie'), /HttpOnly/);
   assert.match(registered.headers.get('set-cookie'), /SameSite=Strict/);
   assert.notEqual(store.byEmail(credentials.email).password_hash, credentials.password);
@@ -106,6 +107,42 @@ test('registration hashes passwords, sets private cookies, and supports login/lo
   );
   assert.equal((await request('/api/auth/login', credentials)).status, 200);
   assert.equal((await request('/api/auth/register', credentials)).status, 409);
+});
+
+test('TradeScope upgrades unexpired previous-brand cookies without changing the account or expiry', async (t) => {
+  const { client, base, store } = await setup(t, { secureCookies: true });
+  const signedIn = await client()('/api/auth/demo', {});
+  const currentCookie = signedIn.headers.get('set-cookie').split(';')[0];
+  const previousCookie = currentCookie.replace('tradescope_session=', 'investogram_session=');
+  const before = store.db.prepare('SELECT * FROM sessions').all();
+  const response = await fetch(base + '/api/auth/session', {
+    headers: { Cookie: previousCookie },
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).user.id, signedIn.data.user.id);
+  const cookies = response.headers.getSetCookie();
+  assert.match(cookies[0], /^tradescope_session=/);
+  assert.match(cookies[0], /HttpOnly/);
+  assert.match(cookies[0], /SameSite=Strict/);
+  assert.match(cookies[0], /Secure/);
+  assert.match(cookies[1], /^investogram_session=;/);
+  assert.deepEqual(store.db.prepare('SELECT * FROM sessions').all(), before);
+  const logout = await fetch(base + '/api/auth/logout', {
+    method: 'POST',
+    headers: {
+      Cookie: currentCookie,
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': signedIn.data.csrf,
+    },
+    body: '{}',
+  });
+  assert.equal(logout.status, 200);
+  assert.equal(logout.headers.getSetCookie().length, 2);
+  assert.equal(
+    (await fetch(base + '/api/auth/session', { headers: { Cookie: previousCookie } })).status,
+    401,
+  );
+  assert.equal((await (await fetch(base + '/api/health')).json()).name, 'TradeScope');
 });
 
 test('private accounts cannot read, cancel, close, or export another account', async (t) => {

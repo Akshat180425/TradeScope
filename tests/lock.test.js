@@ -6,7 +6,7 @@ import path from 'node:path';
 import { acquireLock } from '../backend/src/storage/lock.js';
 
 test('only one server may use a saved session, and closing releases the lock', (t) => {
-  const folder = mkdtempSync(path.join(tmpdir(), 'investogram-lock-'));
+  const folder = mkdtempSync(path.join(tmpdir(), 'tradescope-lock-'));
   t.after(() => rmSync(folder, { recursive: true, force: true }));
   const filename = path.join(folder, 'session.lock');
   const release = acquireLock(filename);

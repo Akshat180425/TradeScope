@@ -39,7 +39,7 @@ export default function Auth({ onSession }) {
       <header className="auth-header">
         <a className="brand" href="#">
           <ChartNoAxesCombined size={27} />
-          Investogram<span className="brand-dot">.</span>
+          TradeScope<span className="brand-dot">.</span>
         </a>
         <span className="environment-tag">Paper trading</span>
       </header>
@@ -127,7 +127,7 @@ export default function Auth({ onSession }) {
         </div>
       </main>
       <footer className="auth-footer">
-        INVESTOGRAM <span>Simulated US equities / USD + INR</span>
+        TRADESCOPE <span>Simulated US equities / USD + INR</span>
       </footer>
     </div>
   );

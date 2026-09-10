@@ -37,7 +37,7 @@ if (production) {
 }
 const { host, port } = config;
 const server = service.app.listen(port, host, () =>
-  console.log('Investogram ' + (production ? 'app' : 'API') + ' http://' + host + ':' + port),
+  console.log('TradeScope ' + (production ? 'app' : 'API') + ' http://' + host + ':' + port),
 );
 server.on('error', (error) => {
   console.error(

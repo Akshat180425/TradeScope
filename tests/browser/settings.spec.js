@@ -18,7 +18,7 @@ test('registration, protected administration, session reload and logout', async 
     cwd: process.cwd(),
     env: {
       ...process.env,
-      INVESTOGRAM_DATABASE: path.resolve('.local/browser-tests-platform.sqlite'),
+      TRADESCOPE_DATABASE: path.resolve('.local/browser-tests-platform.sqlite'),
     },
     windowsHide: true,
   });

@@ -84,8 +84,8 @@ export default function App() {
       setSessionToken('');
       setData(null);
     };
-    window.addEventListener('investogram:expired', expired);
-    return () => window.removeEventListener('investogram:expired', expired);
+    window.addEventListener('tradescope:expired', expired);
+    return () => window.removeEventListener('tradescope:expired', expired);
   }, []);
   const refresh = useCallback(async () => {
     if (!session) return;
@@ -107,9 +107,7 @@ export default function App() {
     stream.onopen = () => setConnection('connected');
     stream.onerror = () => setConnection('reconnecting');
     stream.addEventListener('revision', refresh);
-    stream.addEventListener('expired', () =>
-      window.dispatchEvent(new Event('investogram:expired')),
-    );
+    stream.addEventListener('expired', () => window.dispatchEvent(new Event('tradescope:expired')));
     const timer = setInterval(refresh, 30000);
     return () => {
       stream.close();
@@ -211,7 +209,7 @@ export default function App() {
             <ChartNoAxesCombined size={23} />
           </span>
           <span>
-            Investogram<span className="brand-dot">.</span>
+            TradeScope<span className="brand-dot">.</span>
           </span>
         </a>
         <div className="workspace-label">TRADING WORKSPACE</div>
@@ -251,7 +249,7 @@ export default function App() {
             </div>
           </div>
           <div className="sidebar-foot">
-            INVESTOGRAM <span>02</span>
+            TRADESCOPE <span>02</span>
           </div>
         </div>
       </aside>
@@ -267,7 +265,7 @@ export default function App() {
               <Menu size={21} />
             </button>
             <span>Workspace</span>
-            <span className="mobile-brand">Investogram</span>
+            <span className="mobile-brand">TradeScope</span>
             <span className="breadcrumb-slash">/</span>
             <strong>{item.label}</strong>
           </div>
