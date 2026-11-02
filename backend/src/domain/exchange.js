@@ -2,9 +2,10 @@ import { OrderBook } from 'nodejs-order-book';
 import { money } from './catalog.js';
 
 export class Exchange {
-  constructor(state, onFill) {
+  constructor(state, onFill, onAfterMatch = () => {}) {
     this.state = state;
     this.onFill = onFill;
+    this.onAfterMatch = onAfterMatch;
     this.books = new Map();
     this.orders = new Map();
     for (const market of state.markets) this.books.set(market.symbol, new OrderBook());
@@ -44,25 +45,43 @@ export class Exchange {
         ? book.market(options)
         : book.limit({ ...options, price: order.limitPrice });
     if (result.err) throw new Error(result.err.message);
+    const affected = new Set();
     for (const expired of result.stpExpired || []) {
       const previous = this.orders.get(expired.id);
       if (previous) {
         previous.status = 'cancelled';
         previous.reason = 'Self-trade prevented';
+        (previous.events ||= []).push({
+          tick: this.state.tick,
+          status: 'cancelled',
+          detail: previous.reason,
+        });
       }
       this.orders.delete(expired.id);
     }
     for (const done of result.done) {
       if (done.id !== order.id)
-        this.fill(order, this.orders.get(done.id), this.orders.get(done.id)?.remaining || 0);
+        this.fill(
+          order,
+          this.orders.get(done.id),
+          this.orders.get(done.id)?.remaining || 0,
+          affected,
+        );
     }
     if (result.partial && result.partial.id !== order.id)
-      this.fill(order, this.orders.get(result.partial.id), result.partialQuantityProcessed);
+      this.fill(
+        order,
+        this.orders.get(result.partial.id),
+        result.partialQuantityProcessed,
+        affected,
+      );
     if ((order.executionType || order.orderType) === 'market' && order.remaining > 0)
       order.status = 'cancelled';
+    // Reconcile risk only after the matching library has completed the entire atomic match.
+    if (affected.size) this.onAfterMatch([...affected]);
     return order;
   }
-  fill(taker, maker, quantity) {
+  fill(taker, maker, quantity, affected = new Set()) {
     if (!maker || quantity <= 0) return;
     const price = maker.limitPrice;
     for (const order of [maker, taker]) {
@@ -73,7 +92,10 @@ export class Exchange {
       order.averagePrice = money(order.filledNotional / (filled + quantity));
       order.remaining -= quantity;
       order.status = order.remaining === 0 ? 'filled' : 'partial';
-      if (order.userId) this.onFill(order, quantity, price);
+      if (order.userId) {
+        this.onFill(order, quantity, price);
+        affected.add(order.userId);
+      }
       if (order.remaining === 0) this.orders.delete(order.id);
     }
   }

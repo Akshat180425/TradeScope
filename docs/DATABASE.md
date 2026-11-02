@@ -41,7 +41,13 @@ Stop the server before copying the database. If SQLite WAL/SHM files are present
 
 For independent experiments, set `TRADESCOPE_DATABASE` to a separate filename. Do not point two server instances at one engine database. A new filename does not import the original JSON unless the normal default migration path is used.
 
-## MongoDB Atlas Later
+## Risk and Journal State
+
+Account risk policies, daily equity/funding baselines, manual pauses, daily-loss latches and the latest 100 risk events are stored in the market snapshot. Journal entries retain their owner, execution link, simulated ticks and wall-clock create/update timestamps there as well. Existing snapshots gain these fields on load; cash, holdings and ledger history are not reconstructed or reset.
+
+Risk changes and journal mutations share the existing SQLite transaction with their idempotency result and audit event. Save failure rolls the entire operation back. Existing exposure is never liquidated merely because a new policy is lower; pending buys that violate it are cancelled and recorded as such. Journal deletion does not touch ledger or execution projections.
+
+## MongoDB Atlas Integration
 
 The repository interface is the replacement boundary: load/save, transactional execution, identities, preferences, sessions, request results, audit and admin queries. An Atlas adapter will need collections and unique indexes corresponding to those guarantees, as well as a multi-document transaction for each financial operation. Merely copying JSON into a collection is not a complete migration.
 

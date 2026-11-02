@@ -11,6 +11,17 @@ import { normal, random } from './random.js';
 import { contractPrice, positionValue } from './pricing.js';
 import { Exchange } from './exchange.js';
 import {
+  initializeRisk,
+  riskSummary,
+  riskOrderError,
+  riskLimitsSchema,
+  riskEvent,
+  sessionDay,
+  openOrder,
+  increasesRisk,
+} from './risk.js';
+import { journalSchema } from './journal.js';
+import {
   feeFor,
   initializeRecords,
   recordCash,
@@ -57,8 +68,12 @@ export class Engine {
       })),
     };
     initializeRecords(this.state);
-    this.exchange = new Exchange(this.state, (order, quantity, price) =>
-      this.fillSpot(order, quantity, price),
+    this.state.risk ||= {};
+    this.state.journal ||= [];
+    this.exchange = new Exchange(
+      this.state,
+      (order, quantity, price) => this.fillSpot(order, quantity, price),
+      (ids) => this.enforceRisk(ids),
     );
     if (!saved) {
       this.exchange.refresh();
@@ -76,6 +91,9 @@ export class Engine {
       }
       this.advance(90);
     }
+    // Numeric accounts are preserved seed-market participants, never private login accounts.
+    for (const user of this.state.users) if (!/^\d+$/.test(user.id)) initializeRisk(this, user.id);
+    this.enforceRisk();
   }
   user(id) {
     const user = this.state.users.find((u) => u.id === id);
@@ -164,6 +182,8 @@ export class Engine {
     const fee = money(
       feeFor(order.filledNotional || cost, order.feeBps || 0) - (order.feesPaid || 0),
     );
+    const realizedPnl =
+      order.side === 'sell' ? money(quantity * (price - holding.averageCost) - fee) : null;
     order.feesPaid = money((order.feesPaid || 0) + fee);
     user.feesPaid = money(user.feesPaid + fee);
     if (order.side === 'buy') {
@@ -172,7 +192,7 @@ export class Engine {
       holding.quantity += quantity;
       recordCash(this.state, user, -cost, 'stock_purchase', order.id);
     } else {
-      user.realizedPnl = money(user.realizedPnl + quantity * (price - holding.averageCost) - fee);
+      user.realizedPnl = money(user.realizedPnl + realizedPnl);
       holding.quantity -= quantity;
       recordCash(this.state, user, cost, 'stock_sale', order.id);
       if (holding.quantity === 0) holding.averageCost = 0;
@@ -201,6 +221,7 @@ export class Engine {
       price,
       total: cost,
       fee,
+      pnl: realizedPnl,
       tick: this.state.tick,
     });
   }
@@ -301,6 +322,8 @@ export class Engine {
       );
     const portfolio = this.portfolio(user.id);
     const quote = this.quote(input);
+    const riskError = riskOrderError(this, input);
+    if (riskError) throw new DomainError(riskError);
     if (input.instrument === 'spot' && input.side === 'sell') {
       const holding = portfolio.holdings.find((h) => h.symbol === input.symbol);
       if (!holding || holding.available < input.quantity)
@@ -389,9 +412,10 @@ export class Engine {
         tick: this.state.tick,
       });
     }
+    this.enforceRisk([user.id]);
     return order;
   }
-  cancelOrder(id, userId) {
+  cancelOrder(id, userId, reason = 'Unfilled remainder cancelled') {
     const order = this.state.orders.find((o) => o.id === id && o.userId === userId);
     if (!order) throw new DomainError('Order not found.', 404);
     if (!['open', 'partial', 'waiting'].includes(order.status))
@@ -401,8 +425,9 @@ export class Engine {
     (order.events ||= []).push({
       tick: this.state.tick,
       status: 'cancelled',
-      detail: 'Unfilled remainder cancelled',
+      detail: reason,
     });
+    order.reason = reason;
     notify(this.state, userId, 'Order cancelled', `${order.symbol} / ${order.id}`, order.id);
     return order;
   }
@@ -443,15 +468,30 @@ export class Engine {
       price: value.mark,
       total: money(value.mark * position.quantity * LOT_SIZE),
       tick: this.state.tick,
-      pnl: value.pnl,
+      pnl: position.realizedPnl,
       fee,
       positionId: position.id,
     });
+    this.enforceRisk([userId]);
     return position;
   }
   advance(steps = 1) {
     for (let step = 0; step < steps; step++) {
       this.state.tick++;
+      for (const [id, risk] of Object.entries(this.state.risk)) {
+        if (risk.day !== sessionDay(this.state.tick)) {
+          risk.day = sessionDay(this.state.tick);
+          risk.openingEquity = this.portfolio(id).equity;
+          risk.openingFunding = this.user(id).netFunding;
+          risk.breachedDay = null;
+          riskEvent(
+            this,
+            id,
+            'new_session',
+            'Daily loss baseline reset for the new simulated session.',
+          );
+        }
+      }
       for (const order of this.state.orders.filter((o) =>
         ['open', 'partial', 'waiting'].includes(o.status),
       )) {
@@ -488,6 +528,7 @@ export class Engine {
         market.history.push({ tick: this.state.tick, price: market.price, volume });
         if (market.history.length > 2340) market.history.shift();
       }
+      this.enforceRisk();
       this.exchange.refresh();
       this.triggerStops();
       for (const position of this.state.positions.filter((p) => p.status === 'open')) {
@@ -516,22 +557,25 @@ export class Engine {
           );
         }
       }
+      this.enforceRisk();
       for (const user of this.state.users) samplePerformance(this, user.id);
     }
   }
   triggerStops() {
     for (const order of this.state.orders.filter((o) => o.status === 'waiting')) {
+      if (order.status !== 'waiting') continue;
       const price = this.market(order.symbol).price;
       if (!(order.side === 'buy' ? price >= order.stopPrice : price <= order.stopPrice)) continue;
       const executionType = order.orderType === 'stop_limit' ? 'limit' : 'market';
       const quote = this.quote({ ...order, orderType: executionType, quantity: order.remaining });
       const portfolio = this.portfolio(order.userId, order.id);
       const reason =
-        order.side === 'buy' && quote.requiredCash > portfolio.availableCash
+        riskOrderError(this, order, order.id) ||
+        (order.side === 'buy' && quote.requiredCash > portfolio.availableCash
           ? 'Insufficient cash at trigger'
           : executionType === 'market' && quote.availableQuantity < order.remaining
             ? 'Insufficient liquidity at trigger'
-            : null;
+            : null);
       order.events.push({
         tick: this.state.tick,
         status: 'triggered',
@@ -562,6 +606,7 @@ export class Engine {
     };
     this.state.users.push(user);
     recordCash(this.state, user, INITIAL_CASH, 'initial_funding');
+    initializeRisk(this, id);
     samplePerformance(this, id);
     return user;
   }
@@ -581,6 +626,132 @@ export class Engine {
     );
     user.netFunding = money(user.netFunding + amount);
     samplePerformance(this, userId);
+    this.enforceRisk([userId]);
+  }
+  enforceRisk(ids = Object.keys(this.state.risk)) {
+    for (const id of ids) {
+      const risk = this.state.risk[id];
+      if (!risk) continue;
+      const summary = riskSummary(this, id);
+      if (summary.dailyPnl <= -risk.limits.dailyLossLimit && risk.breachedDay !== risk.day) {
+        risk.breachedDay = risk.day;
+        riskEvent(
+          this,
+          id,
+          'daily_loss_pause',
+          'Daily loss limit reached; new exposure is locked until the next session.',
+        );
+        notify(
+          this.state,
+          id,
+          'Trading paused',
+          'Daily loss limit reached. Existing positions can still be reduced.',
+        );
+      }
+      const paused = risk.manualPause || risk.breachedDay === risk.day;
+      for (const order of [...this.state.orders].reverse()) {
+        if (order.userId !== id || !openOrder(order) || !increasesRisk(order)) continue;
+        if (paused || riskOrderError(this, order, order.id))
+          this.cancelOrder(
+            order.id,
+            id,
+            paused ? 'Cancelled by trading pause' : 'Cancelled by position limit',
+          );
+      }
+    }
+  }
+  setRiskLimits(userId, input) {
+    const limits = riskLimitsSchema.parse(input);
+    const risk = initializeRisk(this, userId);
+    risk.limits = limits;
+    riskEvent(this, userId, 'limits_updated', 'Account risk limits updated.');
+    this.enforceRisk([userId]);
+    return riskSummary(this, userId);
+  }
+  orderRisk(input) {
+    const summary = riskSummary(this, input.userId);
+    const error = riskOrderError(this, input);
+    if (!summary) return { error, warning: null };
+    const exposure = summary.exposures.find((e) => e.symbol === input.symbol);
+    const additional =
+      input.quantity *
+      this.market(input.symbol).price *
+      (input.instrument === 'spot' ? (input.side === 'sell' ? -1 : 1) : LOT_SIZE);
+    const projected = Math.max(0, exposure.grossExposure + additional);
+    const equity = this.portfolio(input.userId).equity;
+    const concentration = equity > 0 ? (projected / equity) * 100 : null;
+    return {
+      error,
+      warning:
+        increasesRisk(input) &&
+        projected > 0 &&
+        (concentration === null || concentration >= summary.limits.concentrationWarningPercent)
+          ? `Projected ${input.symbol} gross concentration: ${concentration === null ? 'equity is nonpositive' : concentration.toFixed(1) + '%'}. Warning threshold: ${summary.limits.concentrationWarningPercent}%.`
+          : null,
+    };
+  }
+  setTradingPause(userId, paused) {
+    const risk = initializeRisk(this, userId);
+    if (!paused && risk.breachedDay === risk.day)
+      throw new DomainError(
+        'The daily loss pause cannot be cleared until the next simulated session.',
+      );
+    risk.manualPause = paused;
+    riskEvent(
+      this,
+      userId,
+      paused ? 'manual_pause' : 'manual_resume',
+      paused ? 'New exposure paused by account owner.' : 'Manual trading pause cleared.',
+    );
+    this.enforceRisk([userId]);
+    return riskSummary(this, userId);
+  }
+  saveJournal(userId, input, id = null) {
+    this.user(userId);
+    const existing = id
+      ? this.state.journal.find((entry) => entry.id === id && entry.userId === userId)
+      : null;
+    if (id && !existing) throw new DomainError('Journal entry not found.', 404);
+    const value = journalSchema.parse(input);
+    const trade = value.tradeId
+      ? this.state.trades.find((t) => t.id === value.tradeId && t.userId === userId)
+      : null;
+    if (value.tradeId && !trade) throw new DomainError('Execution not found.', 404);
+    if (trade && trade.symbol !== value.symbol)
+      throw new DomainError('Journal symbol must match the linked execution.');
+    if (!existing && this.state.journal.filter((entry) => entry.userId === userId).length >= 1000)
+      throw new DomainError('Journal limit reached. Keep at most 1,000 entries.');
+    const entry = existing || {
+      id: 'J' + this.state.nextId++,
+      userId,
+      createdTick: this.state.tick,
+      createdAt: new Date().toISOString(),
+    };
+    Object.assign(entry, value, {
+      updatedTick: this.state.tick,
+      updatedAt: new Date().toISOString(),
+    });
+    if (!existing) this.state.journal.push(entry);
+    return entry;
+  }
+  deleteJournal(userId, id) {
+    const index = this.state.journal.findIndex(
+      (entry) => entry.id === id && entry.userId === userId,
+    );
+    if (index < 0) throw new DomainError('Journal entry not found.', 404);
+    this.state.journal.splice(index, 1);
+    return { ok: true };
+  }
+  journalEntries(userId) {
+    return this.state.journal
+      .filter((entry) => entry.userId === userId)
+      .map((entry) => ({
+        ...entry,
+        trade: entry.tradeId
+          ? this.state.trades.find((t) => t.id === entry.tradeId && t.userId === userId) || null
+          : null,
+      }))
+      .reverse();
   }
   snapshot(userId = '1', symbol = 'AAPL') {
     this.market(symbol);
@@ -602,6 +773,8 @@ export class Engine {
       })),
       users: this.state.users.map(({ id, name }) => ({ id, name })),
       portfolio: this.portfolio(userId),
+      risk: riskSummary(this, userId),
+      journalCount: this.state.journal.filter((entry) => entry.userId === userId).length,
       book: this.exchange.depth(symbol),
       orders: this.state.orders
         .filter((o) => o.userId === userId)

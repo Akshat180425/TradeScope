@@ -45,22 +45,26 @@ Use the email you registered. Reload the app afterward. This local command is th
 
 ## Features
 
-| Workspace      | Capabilities                                                                                                                                            |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Accounts       | Registration, sign-in/out, private sessions, demo access, per-account preferences, administrator role                                                   |
-| Markets        | Five simulated US equities; instrument search; personal watchlist; candlestick/line chart; volume; session statistics; bid/ask depth                    |
-| Trading        | Market, limit, stop-market and stop-limit stock orders; day/GTC validity; cash/share reservations; partial fills; self-trade prevention; simulated fees |
-| Derivatives    | Long/short futures; long calls/puts; strike/expiry selection; margin and liquidation thresholds; countdowns; cash settlement and closing records        |
-| Portfolio      | Holdings, average cost, cash, realized/unrealized P&L, allocation, recorded equity history, time-weighted return and drawdown                           |
-| Orders         | Instrument/status/search filters; lifecycle details; execution and fee information; cancellation of unfilled quantities                                 |
-| Activity       | Searchable executions and cash ledger; complete trade/ledger CSV exports in USD                                                                         |
-| Alerts         | Private price alerts and in-app fill, cancellation, expiry, liquidation and trigger notifications                                                       |
-| Funding        | Virtual deposits/withdrawals, balance validation and idempotent requests; funding is excluded from investment return                                    |
-| Administration | Run/pause/step; speed, volatility, future-order fee rate and simulated FX configuration; audit log                                                      |
+| Workspace       | Capabilities                                                                                                                                            |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Accounts        | Registration, sign-in/out, private sessions, demo access, per-account preferences, administrator role                                                   |
+| Markets         | Five simulated US equities; instrument search; personal watchlist; candlestick/line chart; volume; session statistics; bid/ask depth                    |
+| Trading         | Market, limit, stop-market and stop-limit stock orders; day/GTC validity; cash/share reservations; partial fills; self-trade prevention; simulated fees |
+| Derivatives     | Long/short futures; long calls/puts; strike/expiry selection; margin and liquidation thresholds; countdowns; cash settlement and closing records        |
+| Portfolio       | Holdings, average cost, cash, realized/unrealized P&L, allocation, recorded equity history, time-weighted return and drawdown                           |
+| Orders          | Instrument/status/search filters; lifecycle details; execution and fee information; cancellation of unfilled quantities                                 |
+| Activity        | Searchable executions and cash ledger; complete trade/ledger CSV exports in USD                                                                         |
+| Alerts          | Private price alerts and in-app fill, cancellation, expiry, liquidation and trigger notifications                                                       |
+| Funding         | Virtual deposits/withdrawals, balance validation and idempotent requests; funding is excluded from investment return                                    |
+| Risk center     | Per-symbol position limits, concentration warnings, daily-loss budgets, automated and manual trading pauses, private risk history                       |
+| Trading journal | Private notes linked to executions, strategy and tags, planned/reviewed status, search, filters, editing and deletion                                   |
+| Administration  | Run/pause/step; speed, volatility, future-order fee rate and simulated FX configuration; audit log                                                      |
 
 Prices are pushed indirectly through server-sent revision events: the browser fetches an authenticated snapshot after a revision. It also reconnects and performs a periodic refresh as a fallback. No WebSocket service or external quote provider is required.
 
 ## USD and INR
+
+The portfolio includes simultaneous USD/INR valuations for equity, cash and realized/unrealized P&L, plus a bidirectional conversion calculator. Conversion does not transfer money or create separate currency wallets.
 
 The currency selector changes displayed money values and persists with the account. **Accounting, order-price inputs, strike inputs, funding and exports remain in USD.** INR is a converted presentation of the same balances, not a separate wallet, Indian exchange, or foreign-exchange order book.
 
@@ -77,6 +81,25 @@ The initial configured conversion is **83 INR per USD**, explicitly a simulation
 - Each futures/options contract represents 100 shares. Futures use 20% initial margin and a simplified cost-of-carry mark. Liquidation occurs when margin equity falls to 25% of initial margin; losses are not capped at the deposit.
 - Options are long-only, European and cash-settled. Black-Scholes supplies theoretical marks. Calls/puts settle at nonnegative intrinsic value at expiry. Closing is not early exercise. Derivatives execute at model values, not a real derivative exchange book.
 - There are no real holidays, weekends, taxes, dividends, corporate actions, exchange-specific contract calendars or daily futures variation-margin transfers.
+
+## Risk Center
+
+Every private account has its own editable risk policy, persisted with its portfolio:
+
+- Default maximum per symbol: 1,000 stock shares, 10 gross futures contracts and 10 long options contracts. Pending stock buys and waiting stops count toward the share limit. Pending sales do not create capacity before they execute. Opposing futures do not net for this limit.
+- Default concentration warning: 40% of account equity. Exposure uses gross underlying notional, including pending stock buys and 100 underlying shares per derivative contract. This is conservative, not option delta, capital at risk, or a prediction of maximum loss. Nonpositive equity is explicitly flagged instead of reporting an invalid percentage.
+- Default daily-loss budget: 5,000 USD. Daily P&L is marked equity change less external net funding since the simulated session's opening baseline. Fees and unrealized losses count; deposits and withdrawals do not create profits or erase losses. It is not a drawdown-from-intraday-peak rule.
+- A breach locks new exposure through the current 390-minute simulated session and cancels remaining buy orders, including waiting stops. Deposits, price recovery, policy changes and restart do not unlock it. The next session establishes a new baseline. Manual pauses persist until explicitly resumed.
+- Sales of existing shares, order cancellation, derivative closing, expiry and liquidation remain available while paused. A short futures opening is new exposure, not a position close. Risk limits do not force-liquidate existing holdings when reduced; excess positions are flagged and newest pending buys are cancelled first.
+- Checks occur before new orders, before refreshed liquidity and stop triggers after a price update, and after each atomic matching operation. A gap, fee or multi-fill order can overshoot a daily-loss budget; the pause prevents further exposure, not all subsequent losses in existing positions.
+
+The Risk center shows live budgets, exposures, policy settings and the latest 100 risk events. Order tickets show projected concentration warnings and blocking policy errors. Seeded numeric legacy accounts are market participants, not private login accounts; private accounts created before this upgrade receive a baseline at upgrade time without rewriting earlier financial records.
+
+## Trading Journal
+
+Create, edit, search, filter and delete private journal entries with a title, trade thesis/review, strategy, up to eight tags, symbol and planned/reviewed status. Entries can link to one of your own executions; the linked symbol must match. Linked fees and recorded realized P&L appear in the journal using the selected display currency.
+
+Each account can retain up to 1,000 entries, with 5,000 characters of notes per entry. The journal is loaded separately from live market snapshots. Changes are authenticated, account-scoped, transactional and idempotent. Deleting a note never deletes an execution or cash record. Editing notes does not create portfolio-performance samples. New stock-sale records include net realized P&L; older records without that field are not assigned fabricated results.
 
 ## Data and Migration
 
@@ -97,13 +120,13 @@ Destructive global reset is intentionally disabled once accounts and ledgers exi
 ```text
 frontend/src/
   components/     Order entry, books, charts, dialogs
-  views/          Authentication, markets, portfolio, orders, activity, alerts, admin
+  views/          Authentication, markets, portfolio, orders, activity, alerts, risk, journal, admin
   lib/            HTTP client and display formatting
   App.jsx         Authenticated workspace, navigation and live connection
 backend/src/
   api/            HTTP routes, authorization boundaries and validation
   services/       Password/session handling and authentication rate limits
-  domain/         Matching, pricing, accounting, analytics and simulation
+  domain/         Matching, pricing, accounting, analytics, risk, journal and simulation
   storage/        SQLite repository, SQL migrations and process locking
   server.js       Configuration, startup, timer and graceful shutdown
 scripts/          Dev/build launchers and local administrator command
@@ -169,6 +192,10 @@ Screenshots use simulated accounts and virtual funds.
 ![Portfolio performance and holdings](docs/screenshots/portfolio-desktop.png)
 
 ![Futures and options workspace](docs/screenshots/derivatives-desktop.png)
+
+![Account risk controls and exposure](docs/screenshots/risk-desktop.png)
+
+![Private trading journal](docs/screenshots/journal-desktop.png)
 
 ## Contributing
 

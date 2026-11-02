@@ -21,7 +21,8 @@ try {
   });
   const info = await health.json();
   if (info.devSessionId === existing.id) {
-    const frontend = await fetch(existing.webUrl, { signal: AbortSignal.timeout(1500) });
+    // The first frontend request may wait for Vite's cold dependency compilation.
+    const frontend = await fetch(existing.webUrl, { signal: AbortSignal.timeout(10000) });
     if (frontend.ok) {
       console.log('TradeScope is already running: ' + existing.webUrl);
       process.exit(0);

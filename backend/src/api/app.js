@@ -173,7 +173,7 @@ export function createApp(store = new DatabaseStore(':memory:'), options = {}) {
     req.identity.role === 'admin'
       ? next()
       : next(new DomainError('Administrator access required.', 403));
-  const financial = (req, res, action, status = 200) => {
+  const financial = (req, res, action, status = 200, sample = true) => {
     const key = req.get('Idempotency-Key');
     if (!key || !/^[a-zA-Z0-9-]{16,100}$/.test(key))
       throw new DomainError('A valid Idempotency-Key is required.');
@@ -187,7 +187,7 @@ export function createApp(store = new DatabaseStore(':memory:'), options = {}) {
     }
     const result = mutate(() => {
       const result = action(id);
-      samplePerformance(engine, id);
+      if (sample) samplePerformance(engine, id);
       store.remember(id, key, fingerprint, result);
       store.audit(id, req.method + ' ' + req.path);
       return result;
@@ -233,9 +233,10 @@ export function createApp(store = new DatabaseStore(':memory:'), options = {}) {
     const input = preferences.parse(req.body);
     res.json(store.preferences(req.session.user_id, input));
   });
-  app.post('/api/quote', (req, res) =>
-    res.json(engine.quote(orderSchema.parse({ ...req.body, userId: req.session.user_id }))),
-  );
+  app.post('/api/quote', (req, res) => {
+    const input = orderSchema.parse({ ...req.body, userId: req.session.user_id });
+    res.json({ ...engine.quote(input), risk: engine.orderRisk(input) });
+  });
   app.post('/api/orders', (req, res) =>
     financial(
       req,
@@ -259,6 +260,31 @@ export function createApp(store = new DatabaseStore(':memory:'), options = {}) {
       engine.fund(id, amount);
       return { cash: engine.portfolio(id).cash };
     }),
+  );
+  app.patch('/api/risk/limits', (req, res) =>
+    financial(req, res, (id) => engine.setRiskLimits(id, req.body), 200, false),
+  );
+  app.post('/api/risk/pause', (req, res) =>
+    financial(
+      req,
+      res,
+      (id) => {
+        const { paused } = z.object({ paused: z.boolean() }).strict().parse(req.body);
+        return engine.setTradingPause(id, paused);
+      },
+      200,
+      false,
+    ),
+  );
+  app.get('/api/journal', (req, res) => res.json(engine.journalEntries(req.session.user_id)));
+  app.post('/api/journal', (req, res) =>
+    financial(req, res, (id) => engine.saveJournal(id, req.body), 201, false),
+  );
+  app.patch('/api/journal/:id', (req, res) =>
+    financial(req, res, (id) => engine.saveJournal(id, req.body, req.params.id), 200, false),
+  );
+  app.delete('/api/journal/:id', (req, res) =>
+    financial(req, res, (id) => engine.deleteJournal(id, req.params.id), 200, false),
   );
   app.post('/api/alerts', (req, res) => {
     const input = priceAlert.parse(req.body);

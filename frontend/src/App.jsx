@@ -22,6 +22,8 @@ import {
   LogOut,
   Wallet,
   Settings2,
+  BookOpen,
+  ShieldAlert,
 } from 'lucide-react';
 import { api, currency, percent, configureCurrency, setSessionToken, time } from './lib/api.js';
 import Auth from './views/Auth.jsx';
@@ -33,6 +35,8 @@ const Orders = lazy(() => import('./views/Orders.jsx'));
 const ActivityView = lazy(() => import('./views/Activity.jsx'));
 const Alerts = lazy(() => import('./views/Alerts.jsx'));
 const Admin = lazy(() => import('./views/Admin.jsx'));
+const Risk = lazy(() => import('./views/Risk.jsx'));
+const Journal = lazy(() => import('./views/Journal.jsx'));
 
 const navigation = [
   { id: 'markets', label: 'Markets', icon: ChartNoAxesCombined, title: 'Market overview' },
@@ -41,6 +45,8 @@ const navigation = [
   { id: 'orders', label: 'Orders', icon: ListOrdered, title: 'Order history' },
   { id: 'activity', label: 'Activity', icon: Activity, title: 'Account activity' },
   { id: 'alerts', label: 'Price alerts', icon: Bell, title: 'Price alerts' },
+  { id: 'journal', label: 'Trading journal', icon: BookOpen, title: 'Trading journal' },
+  { id: 'risk', label: 'Risk center', icon: ShieldAlert, title: 'Risk center' },
   { id: 'admin', label: 'Administration', icon: ShieldCheck, title: 'Market administration' },
 ];
 export default function App() {
@@ -61,6 +67,7 @@ export default function App() {
     [fundingType, setFundingType] = useState('deposit');
   const [connection, setConnection] = useState('connecting');
   const requestId = useRef(0),
+    activeRefresh = useRef(null),
     requests = useRef(new Map()),
     mutationBusy = useRef(false);
   const admin = session?.user.role === 'admin';
@@ -87,18 +94,28 @@ export default function App() {
     window.addEventListener('tradescope:expired', expired);
     return () => window.removeEventListener('tradescope:expired', expired);
   }, []);
-  const refresh = useCallback(async () => {
-    if (!session) return;
+  const refresh = useCallback(() => {
+    if (!session) return Promise.resolve();
+    const key = session.user.id + ':' + symbol;
+    // Coalesce live revisions while a snapshot is in flight. Otherwise a busy
+    // market can invalidate every response before the account ever renders.
+    if (activeRefresh.current?.key === key) return activeRefresh.current.promise;
     const id = ++requestId.current;
-    try {
-      const next = await api('/state?symbol=' + symbol);
-      if (id === requestId.current) {
-        setData(next);
-        setError('');
+    const promise = (async () => {
+      try {
+        const next = await api('/state?symbol=' + symbol);
+        if (id === requestId.current) {
+          setData(next);
+          setError('');
+        }
+      } catch (e) {
+        if (id === requestId.current) setError(e.message);
+      } finally {
+        if (activeRefresh.current?.id === id) activeRefresh.current = null;
       }
-    } catch (e) {
-      if (id === requestId.current) setError(e.message);
-    }
+    })();
+    activeRefresh.current = { key, id, promise };
+    return promise;
   }, [session?.user.id, symbol]);
   useEffect(() => {
     if (!session) return;
@@ -113,6 +130,7 @@ export default function App() {
       stream.close();
       clearInterval(timer);
       requestId.current++;
+      activeRefresh.current = null;
     };
   }, [refresh]);
   useEffect(() => {
@@ -364,6 +382,30 @@ export default function App() {
               and cash settle in USD.
             </div>
           )}
+          {data?.risk?.paused && (
+            <div className="risk-pause-banner" role="status">
+              <ShieldAlert size={19} />
+              <span>{data.risk.reason}. Sales and position closes remain available.</span>
+              <button className="text-button" onClick={() => navigate('risk')}>
+                Risk center
+              </button>
+            </div>
+          )}
+          {!data?.risk?.paused && data?.risk?.exposures.some((e) => e.warning) && (
+            <div className="risk-pause-banner concentration-banner" role="status">
+              <ShieldAlert size={19} />
+              <span>
+                Concentration warning:{' '}
+                {data.risk.exposures
+                  .filter((e) => e.warning)
+                  .map((e) => e.symbol)
+                  .join(', ')}
+              </span>
+              <button className="text-button" onClick={() => navigate('risk')}>
+                Review exposure
+              </button>
+            </div>
+          )}
           {!data ? (
             <div className="loading-state" role="status">
               <LoaderCircle size={26} className="spin" />
@@ -445,6 +487,10 @@ export default function App() {
                 {item.id === 'activity' && <ActivityView data={data} />}
                 {item.id === 'alerts' && <Alerts data={data} mutate={mutate} busy={busy} />}
                 {item.id === 'admin' && <Admin data={data} mutate={mutate} busy={busy} />}
+                {item.id === 'risk' && data.risk && (
+                  <Risk data={data} mutate={mutate} busy={busy} />
+                )}
+                {item.id === 'journal' && <Journal data={data} mutate={mutate} busy={busy} />}
               </Suspense>
               <footer className="workspace-footer">
                 <span>

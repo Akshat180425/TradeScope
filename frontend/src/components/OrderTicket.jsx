@@ -49,27 +49,40 @@ export default function OrderTicket({ data, symbol, instrument = 'spot', onCompl
   const inputKey = JSON.stringify(input);
   useEffect(() => {
     let active = true;
+    let timer;
     setQuote(null);
     setQuoteError('');
-    const timer = setTimeout(() => {
+    const refreshQuote = () => {
       api('/quote', { method: 'POST', body: JSON.parse(inputKey) })
         .then((q) => {
-          if (active) setQuote(q);
+          if (active) {
+            setQuote(q);
+            setQuoteError('');
+          }
         })
         .catch((e) => {
-          if (active) setQuoteError(e.message);
+          if (active) {
+            setQuote(null);
+            setQuoteError(e.message);
+          }
+        })
+        .finally(() => {
+          // Poll after completion: market ticks must not keep cancelling the
+          // debounce or discard every response while prices are moving.
+          if (active) timer = setTimeout(refreshQuote, 1000);
         });
-    }, 180);
+    };
+    timer = setTimeout(refreshQuote, 180);
     return () => {
       active = false;
       clearTimeout(timer);
     };
   }, [
     inputKey,
-    data.simulation.tick,
     data.simulation.volatility,
     data.simulation.feeBps,
-    JSON.stringify(data.book),
+    JSON.stringify(data.risk?.limits),
+    data.risk?.paused,
   ]);
   async function submit(event) {
     event.preventDefault();
@@ -289,6 +302,16 @@ export default function OrderTicket({ data, symbol, instrument = 'spot', onCompl
               : currency(data.portfolio.availableCash)}
           </strong>
         </div>
+        {quote?.risk?.warning && (
+          <p className="risk-ticket-warning">
+            <span>{quote.risk.warning}</span>
+          </p>
+        )}
+        {quote?.risk?.error && (
+          <p className="field-error" role="alert">
+            {quote.risk.error}
+          </p>
+        )}
         {(quoteError || shortCash) && (
           <p className="inline-error" role="status">
             {quoteError || 'Insufficient available cash.'}
@@ -301,6 +324,7 @@ export default function OrderTicket({ data, symbol, instrument = 'spot', onCompl
           }
           type="submit"
           disabled={
+            !!quote?.risk?.error ||
             sending ||
             busy ||
             !quote ||

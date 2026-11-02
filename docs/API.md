@@ -62,7 +62,48 @@ Quotes include `price`, `total`, `fee`, `requiredCash` and `lotSize`; futures al
 
 Order placement/cancellation, position closing and funding require an `Idempotency-Key` header, 16-100 alphanumeric/hyphen characters. Generate a UUID per intended action. Reuse it after an uncertain network result. An identical retry returns the original response; different content with the same account/key returns 409. Do not generate a new key merely because the connection failed.
 
-## Administration
+## Journal and Risk
+
+All mutations below require both CSRF and `Idempotency-Key`, with the same retry semantics as orders. Account ownership always comes from the session. Non-owned journal entries and execution links return 404.
+
+| Method | Endpoint       | Purpose                                                                                             |
+| ------ | -------------- | --------------------------------------------------------------------------------------------------- |
+| GET    | `/journal`     | All own journal entries, newest first, with own linked execution details                            |
+| POST   | `/journal`     | Create an entry (201)                                                                               |
+| PATCH  | `/journal/:id` | Replace editable entry fields                                                                       |
+| DELETE | `/journal/:id` | Delete a note, never its execution                                                                  |
+| PATCH  | `/risk/limits` | Replace the account's risk limits                                                                   |
+| POST   | `/risk/pause`  | `{ "paused": true }` or `{ "paused": false }`; a current-session daily-loss latch cannot be resumed |
+
+Journal input:
+
+```json
+{
+  "title": "Entry review",
+  "symbol": "AAPL",
+  "notes": "Thesis and observations",
+  "strategy": "Opening range",
+  "tags": ["review"],
+  "status": "reviewed",
+  "tradeId": null
+}
+```
+
+Limits input (all fields required):
+
+```json
+{
+  "maxSharesPerSymbol": 1000,
+  "maxFuturesPerSymbol": 10,
+  "maxOptionsPerSymbol": 10,
+  "concentrationWarningPercent": 40,
+  "dailyLossLimit": 5000
+}
+```
+
+`/state` includes `risk` (policy, current session, daily P&L, loss budget, pause reason, exposures, events) and `journalCount`. `/quote` also returns `risk.error` and `risk.warning`; an estimate never reserves capacity. Actual placement checks the latest policy again on the server. All money limits are USD regardless of the display currency.
+
+## Market Administration
 
 `GET /admin` returns storage counts, preserved legacy-account values and recent audit actions. `POST /simulation` accepts:
 

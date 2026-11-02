@@ -49,6 +49,131 @@ async function setup(t, options = {}) {
 const order = { instrument: 'spot', symbol: 'AAPL', side: 'buy', quantity: 2, orderType: 'market' };
 const credentials = { email: 'account@example.test', password: 'correct-example-password' };
 
+test('journal API isolates accounts and retries, validates links, and supports edit/delete', async (t) => {
+  const { client } = await setup(t);
+  const a = client(),
+    b = client();
+  const user = (await a('/api/auth/demo', {})).data.user;
+  await b('/api/auth/demo', {});
+  await a('/api/orders', order);
+  const state = (await a('/api/state')).data;
+  const entry = {
+    title: 'Trade review',
+    symbol: 'AAPL',
+    tradeId: state.activity[0].id,
+    notes: 'Private reasoning',
+    strategy: 'Momentum',
+    tags: ['setup'],
+    status: 'planned',
+  };
+  const key = randomUUID();
+  const created = await a('/api/journal', entry, { key });
+  assert.equal(created.status, 201);
+  assert.deepEqual((await a('/api/journal', entry, { key })).data, created.data);
+  assert.equal((await a('/api/journal')).data.length, 1);
+  assert.deepEqual((await b('/api/journal')).data, []);
+  assert.equal((await b('/api/journal', entry)).status, 404);
+  assert.equal(
+    (await b('/api/journal/' + created.data.id, entry, { method: 'PATCH' })).status,
+    404,
+  );
+  assert.equal((await b('/api/journal/' + created.data.id, {}, { method: 'DELETE' })).status, 404);
+  assert.equal((await b('/api/journal?userId=' + user.id)).status, 403);
+  assert.equal((await a('/api/journal', { ...entry, title: '' })).status, 400);
+  assert.equal((await a('/api/journal', { ...entry, symbol: 'MSFT' })).status, 400);
+  assert.equal(
+    (
+      await a(
+        '/api/journal/' + created.data.id,
+        { ...entry, status: 'reviewed' },
+        { method: 'PATCH' },
+      )
+    ).data.status,
+    'reviewed',
+  );
+  assert.equal(
+    (await a('/api/state')).data.performance.history.length,
+    state.performance.history.length,
+  );
+  assert.equal((await a('/api/journal/' + created.data.id, {}, { method: 'DELETE' })).status, 200);
+  assert.deepEqual((await a('/api/journal')).data, []);
+});
+
+test('risk API enforces limits and pauses on the server while quote previews report warnings', async (t) => {
+  const { client } = await setup(t);
+  const a = client(),
+    b = client();
+  const identity = (await a('/api/auth/demo', {})).data.user;
+  await b('/api/auth/demo', {});
+  const limits = {
+    ...(await a('/api/state')).data.risk.limits,
+    maxSharesPerSymbol: 2,
+    concentrationWarningPercent: 1,
+  };
+  assert.equal((await a('/api/risk/limits', limits, { method: 'PATCH' })).status, 200);
+  assert.equal((await a('/api/orders', { ...order, quantity: 3 })).status, 400);
+  assert.match(
+    (await a('/api/quote', { ...order, quantity: 3 })).data.risk.error,
+    /position limit/,
+  );
+  assert.equal((await a('/api/orders', order)).status, 201);
+  assert.equal((await a('/api/risk/pause', { paused: true })).data.paused, true);
+  assert.equal((await a('/api/orders', order)).status, 400);
+  assert.equal((await a('/api/orders', { ...order, side: 'sell' })).status, 201);
+  assert.equal((await b('/api/risk/pause', { paused: true, userId: identity.id })).status, 403);
+  assert.equal((await b('/api/state')).data.risk.paused, false);
+  assert.equal((await b('/api/orders', order)).status, 201);
+  assert.equal(
+    (await a('/api/risk/limits', { ...limits, dailyLossLimit: 0 }, { method: 'PATCH' })).status,
+    400,
+  );
+  assert.equal((await a('/api/risk/pause', { paused: 'false' })).status, 400);
+  assert.equal((await a('/api/risk/pause', { paused: false })).data.paused, false);
+});
+
+test('failed journal and risk writes roll back snapshot, idempotency and audit records', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const { client, store, service } = await setup(t);
+  const request = client();
+  await request('/api/auth/demo', {});
+  const before = structuredClone(service.engine.state);
+  const auditCount = store.db.prepare('SELECT COUNT(*) AS n FROM audit_events').get().n;
+  const save = store.save.bind(store);
+  store.save = (state) => {
+    save(state);
+    throw new Error('Injected save failure');
+  };
+  const key = randomUUID();
+  assert.equal(
+    (await request('/api/journal', { title: 'Draft', symbol: 'AAPL' }, { key })).status,
+    500,
+  );
+  assert.deepEqual(service.engine.state, before);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM idempotency').get().n, 0);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM audit_events').get().n, auditCount);
+  assert.equal((await request('/api/risk/pause', { paused: true })).status, 500);
+  assert.deepEqual(service.engine.state, before);
+  store.save = save;
+  assert.equal(
+    (await request('/api/journal', { title: 'Draft', symbol: 'AAPL' }, { key })).status,
+    201,
+  );
+});
+
+test('concurrent orders cannot bypass the cumulative position limit', async (t) => {
+  const { client } = await setup(t);
+  const request = client();
+  await request('/api/auth/demo', {});
+  const limits = { ...(await request('/api/state')).data.risk.limits, maxSharesPerSymbol: 5 };
+  await request('/api/risk/limits', limits, { method: 'PATCH' });
+  const results = await Promise.all([
+    request('/api/orders', { ...order, quantity: 3 }),
+    request('/api/orders', { ...order, quantity: 3 }),
+  ]);
+  assert.deepEqual(results.map((r) => r.status).sort(), [201, 400]);
+  assert.equal((await request('/api/state')).data.portfolio.holdings[0].quantity, 3);
+});
+
 test('distinct concurrent withdrawals cannot spend the same cash twice', async (t) => {
   const { client } = await setup(t);
   const request = client();

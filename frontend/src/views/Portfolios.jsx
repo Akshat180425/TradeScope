@@ -1,12 +1,14 @@
 import { ArrowUpRight, BriefcaseBusiness, Download, Wallet } from 'lucide-react';
 import { PerformanceChart } from '../components/PerformanceChart.jsx';
 import { Allocation } from '../components/Charts.jsx';
+import FxValuation from '../components/FxValuation.jsx';
 import { currency, number, time } from '../lib/api.js';
 export default function Portfolios({ data, onTrade, onClose, onFunding, busy }) {
   const { portfolio } = data;
   return (
     <div className="portfolio-view">
       <PerformanceChart performance={data.performance} portfolio={portfolio} />
+      <FxValuation portfolio={portfolio} rate={data.simulation.fxRate} />
       <div className="portfolio-actions">
         <span className="muted">Net contributions {currency(portfolio.netFunding)}</span>
         <button className="button subtle" onClick={onFunding}>
